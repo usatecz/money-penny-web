@@ -2,13 +2,19 @@ import { useState } from 'react'
 import { GoogleOAuthProvider, CredentialResponse } from '@react-oauth/google'
 import { jwtDecode } from 'jwt-decode'
 import LoginPage from './components/LoginPage'
-import UserProfile from './components/UserProfile'
+import AppLayout from './components/AppLayout'
 import type { GoogleUser, GoogleJwtPayload } from './types/GoogleUser'
+import type { Profile } from './types/Profile'
+import type { Task } from './types/Task'
+import { profileFromGoogle } from './utils/profileFromGoogle'
+import { createDefaultTasks } from './utils/defaultTasks'
 
 const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID
 
 function AuthApp() {
   const [user, setUser] = useState<GoogleUser | null>(null)
+  const [profile, setProfile] = useState<Profile | null>(null)
+  const [tasks, setTasks] = useState<Task[]>([])
   const [loginFailed, setLoginFailed] = useState(false)
 
   const handleLoginSuccess = (credentialResponse: CredentialResponse) => {
@@ -19,12 +25,15 @@ function AuthApp() {
 
     try {
       const decoded = jwtDecode<GoogleJwtPayload>(credentialResponse.credential)
-      setUser({
+      const googleUser: GoogleUser = {
         name: decoded.name,
         email: decoded.email,
         picture: decoded.picture,
         googleId: decoded.sub,
-      })
+      }
+      setUser(googleUser)
+      setProfile(profileFromGoogle(googleUser))
+      setTasks(createDefaultTasks())
       setLoginFailed(false)
     } catch {
       setLoginFailed(true)
@@ -37,11 +46,22 @@ function AuthApp() {
 
   const handleLogout = () => {
     setUser(null)
+    setProfile(null)
+    setTasks([])
     setLoginFailed(false)
   }
 
-  if (user) {
-    return <UserProfile user={user} onLogout={handleLogout} />
+  if (user && profile) {
+    return (
+      <AppLayout
+        user={user}
+        profile={profile}
+        onProfileChange={setProfile}
+        tasks={tasks}
+        onTasksChange={setTasks}
+        onLogout={handleLogout}
+      />
+    )
   }
 
   return (
