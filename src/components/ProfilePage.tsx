@@ -1,11 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { GoogleUser } from '../types/GoogleUser'
 import type { Profile } from '../types/Profile'
 
 interface ProfilePageProps {
   user: GoogleUser
   profile: Profile
-  onProfileChange: (profile: Profile) => void
+  onProfileChange: (profile: Profile) => Promise<void>
 }
 
 const pageTitleStyle: React.CSSProperties = {
@@ -106,15 +106,27 @@ export default function ProfilePage({
 }: ProfilePageProps) {
   const [draft, setDraft] = useState<Profile>(profile)
   const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    setDraft(profile)
+  }, [profile])
 
   const handleChange = (key: keyof Profile, value: string) => {
     setDraft((prev) => ({ ...prev, [key]: value }))
     setSaved(false)
   }
 
-  const handleSave = () => {
-    onProfileChange(draft)
-    setSaved(true)
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      await onProfileChange(draft)
+      setSaved(true)
+    } catch {
+      setSaved(false)
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -133,7 +145,7 @@ export default function ProfilePage({
         <form
           onSubmit={(event) => {
             event.preventDefault()
-            handleSave()
+            void handleSave()
           }}
         >
           {fields.map(({ key, label }) => (
@@ -152,8 +164,8 @@ export default function ProfilePage({
           ))}
 
           <div>
-            <button type="submit" style={saveButtonStyle}>
-              Save
+            <button type="submit" style={saveButtonStyle} disabled={saving}>
+              {saving ? 'Saving…' : 'Save'}
             </button>
             {saved && <span style={savedMessageStyle}>Profile saved</span>}
           </div>

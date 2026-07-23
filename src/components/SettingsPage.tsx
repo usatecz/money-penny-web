@@ -1,3 +1,11 @@
+import { useState } from 'react'
+import type { Settings, SubscriptionPlan } from '../types/Settings'
+
+interface SettingsPageProps {
+  settings: Settings
+  onSettingsChange: (settings: Settings) => Promise<void>
+}
+
 const pageTitleStyle: React.CSSProperties = {
   margin: '0 0 1.5rem',
   fontSize: '1.75rem',
@@ -47,7 +55,49 @@ const priceStyle: React.CSSProperties = {
   color: '#374151',
 }
 
-export default function SettingsPage() {
+const planButtonStyle: React.CSSProperties = {
+  padding: '0.45rem 0.9rem',
+  background: '#1a1a2e',
+  border: 'none',
+  borderRadius: '6px',
+  color: '#fff',
+  fontSize: '0.85rem',
+  fontWeight: 500,
+  cursor: 'pointer',
+}
+
+const plans: {
+  id: SubscriptionPlan
+  name: string
+  detail: string
+  price?: string
+}[] = [
+  { id: 'basic', name: 'Basic', detail: 'Core diary and profile features' },
+  {
+    id: 'premium',
+    name: 'Premium',
+    detail: 'Unlock advanced features',
+    price: '$20/month',
+  },
+]
+
+export default function SettingsPage({
+  settings,
+  onSettingsChange,
+}: SettingsPageProps) {
+  const [saving, setSaving] = useState(false)
+
+  const handleSelectPlan = async (plan: SubscriptionPlan) => {
+    if (plan === settings.subscriptionPlan || saving) return
+
+    setSaving(true)
+    try {
+      await onSettingsChange({ subscriptionPlan: plan })
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <div>
       <h2 style={pageTitleStyle}>Settings</h2>
@@ -64,21 +114,51 @@ export default function SettingsPage() {
           Subscription
         </h3>
 
-        <div style={planRowStyle}>
-          <div>
-            <div style={planNameStyle}>Basic</div>
-            <div style={planDetailStyle}>Your current plan</div>
-          </div>
-          <span style={badgeStyle}>Current</span>
-        </div>
+        {plans.map((plan, index) => {
+          const isCurrent = settings.subscriptionPlan === plan.id
 
-        <div style={{ ...planRowStyle, borderBottom: 'none' }}>
-          <div>
-            <div style={planNameStyle}>Premium</div>
-            <div style={planDetailStyle}>Unlock advanced features</div>
-          </div>
-          <span style={priceStyle}>$20/month</span>
-        </div>
+          return (
+            <div
+              key={plan.id}
+              style={{
+                ...planRowStyle,
+                borderBottom: index === plans.length - 1 ? 'none' : planRowStyle.borderBottom,
+              }}
+            >
+              <div>
+                <div style={planNameStyle}>{plan.name}</div>
+                <div style={planDetailStyle}>
+                  {isCurrent ? 'Your current plan' : plan.detail}
+                </div>
+              </div>
+
+              {isCurrent ? (
+                <span style={badgeStyle}>Current</span>
+              ) : plan.price ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <span style={priceStyle}>{plan.price}</span>
+                  <button
+                    type="button"
+                    style={planButtonStyle}
+                    disabled={saving}
+                    onClick={() => void handleSelectPlan(plan.id)}
+                  >
+                    {saving ? 'Saving…' : 'Switch'}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  style={planButtonStyle}
+                  disabled={saving}
+                  onClick={() => void handleSelectPlan(plan.id)}
+                >
+                  {saving ? 'Saving…' : 'Switch'}
+                </button>
+              )}
+            </div>
+          )
+        })}
       </div>
     </div>
   )

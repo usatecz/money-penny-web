@@ -3,7 +3,9 @@ import type { Task, TaskPriority, TaskStatus } from '../types/Task'
 
 interface DiaryPageProps {
   tasks: Task[]
-  onTasksChange: (tasks: Task[]) => void
+  onTaskCreate: (task: Omit<Task, 'id'>) => Promise<void>
+  onTaskUpdate: (task: Task) => Promise<void>
+  onTaskDelete: (id: string) => Promise<void>
 }
 
 const emptyTask = (): Omit<Task, 'id'> => ({
@@ -169,10 +171,16 @@ function formatDate(value: string) {
   })
 }
 
-export default function DiaryPage({ tasks, onTasksChange }: DiaryPageProps) {
+export default function DiaryPage({
+  tasks,
+  onTaskCreate,
+  onTaskUpdate,
+  onTaskDelete,
+}: DiaryPageProps) {
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState(emptyTask())
+  const [submitting, setSubmitting] = useState(false)
 
   const openAddForm = () => {
     setEditingId(null)
@@ -201,26 +209,30 @@ export default function DiaryPage({ tasks, onTasksChange }: DiaryPageProps) {
     setForm(emptyTask())
   }
 
-  const handleSubmit = (event: React.FormEvent) => {
+  const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
+    setSubmitting(true)
 
-    const taskData: Task = {
-      id: editingId ?? crypto.randomUUID(),
-      ...form,
+    try {
+      if (editingId) {
+        await onTaskUpdate({ id: editingId, ...form })
+      } else {
+        await onTaskCreate(form)
+      }
+      closeForm()
+    } finally {
+      setSubmitting(false)
     }
-
-    if (editingId) {
-      onTasksChange(tasks.map((t) => (t.id === editingId ? taskData : t)))
-    } else {
-      onTasksChange([...tasks, taskData])
-    }
-
-    closeForm()
   }
 
-  const handleDelete = (id: string) => {
-    onTasksChange(tasks.filter((t) => t.id !== id))
-    if (editingId === id) closeForm()
+  const handleDelete = async (id: string) => {
+    setSubmitting(true)
+    try {
+      await onTaskDelete(id)
+      if (editingId === id) closeForm()
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -250,7 +262,8 @@ export default function DiaryPage({ tasks, onTasksChange }: DiaryPageProps) {
               <button
                 type="button"
                 style={dangerButtonStyle}
-                onClick={() => handleDelete(task.id)}
+                disabled={submitting}
+                onClick={() => void handleDelete(task.id)}
               >
                 Delete
               </button>
@@ -439,8 +452,8 @@ export default function DiaryPage({ tasks, onTasksChange }: DiaryPageProps) {
             </div>
 
             <div style={buttonRowStyle}>
-              <button type="submit" style={primaryButtonStyle}>
-                {editingId ? 'Update' : 'Add'}
+              <button type="submit" style={primaryButtonStyle} disabled={submitting}>
+                {submitting ? 'Saving…' : editingId ? 'Update' : 'Add'}
               </button>
               <button type="button" style={smallButtonStyle} onClick={closeForm}>
                 Cancel
