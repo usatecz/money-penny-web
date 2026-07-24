@@ -1,25 +1,8 @@
 # Deploy the FastAPI backend to Azure Container Apps.
 #
-# Required GitHub Actions secrets (Settings → Secrets and variables → Actions):
-#   AZURE_CREDENTIALS       Service principal JSON from `az ad sp create-for-rbac`
-#   ACR_LOGIN_SERVER        e.g. moneypennyacr.azurecr.io
-#   ACR_USERNAME            From `az acr credential show -n <acr-name>`
-#   ACR_PASSWORD            From `az acr credential show -n <acr-name>`
-#   AZURE_CONTAINER_APP_NAME  e.g. money-penny-api
-#   AZURE_RESOURCE_GROUP      e.g. money-penny-rg
-#
-# Create a service principal (Contributor on the resource group):
-#   az ad sp create-for-rbac \
-#     --name money-penny-github \
-#     --role contributor \
-#     --scopes /subscriptions/<sub-id>/resourceGroups/<rg-name> \
-#     --sdk-auth
-#
-# Paste the full JSON output into AZURE_CREDENTIALS.
-#
-# App env vars (GOOGLE_CLIENT_ID, CORS_ORIGINS, etc.) are managed on the
-# Container App itself — not in this workflow. Set them once with:
-#   az containerapp update -g <rg> -n <app> --set-env-vars ...
+# Uses the OIDC + registry secrets created by Azure Portal continuous deployment
+# (prefix MONEYPENNYAPI_*). App env vars (GOOGLE_CLIENT_ID, CORS_ORIGINS, …)
+# stay on the Container App — set them with `az containerapp update`.
 
 name: Deploy backend
 
@@ -32,12 +15,15 @@ on:
   workflow_dispatch:
 
 env:
+  RESOURCE_GROUP: money-penny-rg
+  CONTAINER_APP_NAME: money-penny-api
   IMAGE_NAME: money-penny-backend
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     permissions:
+      id-token: write
       contents: read
 
     steps:
@@ -47,27 +33,31 @@ jobs:
       - name: Log in to Azure
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          client-id: ${{ secrets.MONEYPENNYAPI_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.MONEYPENNYAPI_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.MONEYPENNYAPI_AZURE_SUBSCRIPTION_ID }}
 
-      - name: Log in to ACR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ secrets.ACR_LOGIN_SERVER }}
-          username: ${{ secrets.ACR_USERNAME }}
-          password: ${{ secrets.ACR_PASSWORD }}
-
-      - name: Build and push image
+      - name: Resolve Azure Container Registry
+        id: acr
         run: |
-          IMAGE="${{ secrets.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}"
-          TAG="${{ github.sha }}"
-          docker build -t "${IMAGE}:${TAG}" -t "${IMAGE}:latest" ./backend
-          docker push "${IMAGE}:${TAG}"
-          docker push "${IMAGE}:latest"
-          echo "IMAGE_TO_DEPLOY=${IMAGE}:${TAG}" >> "$GITHUB_ENV"
+          NAME=$(az acr list -g "$RESOURCE_GROUP" --query "[0].name" -o tsv)
+          SERVER=$(az acr list -g "$RESOURCE_GROUP" --query "[0].loginServer" -o tsv)
+          if [ -z "$NAME" ] || [ -z "$SERVER" ]; then
+            echo "No Azure Container Registry found in resource group $RESOURCE_GROUP"
+            exit 1
+          fi
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "login_server=$SERVER" >> "$GITHUB_OUTPUT"
+          echo "Using ACR: $SERVER"
 
-      - name: Deploy to Azure Container Apps
+      - name: Build and deploy to Azure Container Apps
         uses: azure/container-apps-deploy-action@v2
         with:
-          containerAppName: ${{ secrets.AZURE_CONTAINER_APP_NAME }}
-          resourceGroup: ${{ secrets.AZURE_RESOURCE_GROUP }}
-          imageToDeploy: ${{ env.IMAGE_TO_DEPLOY }}
+          appSourcePath: ${{ github.workspace }}/backend
+          acrName: ${{ steps.acr.outputs.name }}
+          registryUrl: ${{ steps.acr.outputs.login_server }}
+          registryUsername: ${{ secrets.MONEYPENNYAPI_REGISTRY_USERNAME }}
+          registryPassword: ${{ secrets.MONEYPENNYAPI_REGISTRY_PASSWORD }}
+          containerAppName: ${{ env.CONTAINER_APP_NAME }}
+          resourceGroup: ${{ env.RESOURCE_GROUP }}
+          imageToBuild: ${{ steps.acr.outputs.login_server }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
